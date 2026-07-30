@@ -34,9 +34,21 @@ class _FakePyAutoGui:
         self.events: list[tuple] = []
         self._pos = _Point(0, 0)
 
-    def moveTo(self, x: int, y: int) -> None:
+    def moveTo(self, x: int, y: int, duration: float = 0.0) -> None:
         self._pos = _Point(x, y)
-        self.events.append(("moveTo", x, y))
+        self.events.append(("moveTo", x, y, duration))
+
+    def dragTo(
+        self, x: int, y: int, duration: float = 0.0, button: str = "left"
+    ) -> None:
+        self._pos = _Point(x, y)
+        self.events.append(("dragTo", x, y, duration, button))
+
+    def mouseDown(self, button: str = "left") -> None:
+        self.events.append(("mouseDown", button))
+
+    def mouseUp(self, button: str = "left") -> None:
+        self.events.append(("mouseUp", button))
 
     def position(self) -> _Point:
         return self._pos
@@ -72,13 +84,13 @@ def test_button_name_maps_and_defaults() -> None:
 def test_move_reports_new_location(fake: _FakePyAutoGui) -> None:
     out = core.move(10, 20)
     assert out["location"] == {"x": 10, "y": 20, "screen": 0, "window": 0}
-    assert ("moveTo", 10, 20) in fake.events
+    assert ("moveTo", 10, 20, 0.0) in fake.events
 
 
 def test_click_moves_then_clicks(fake: _FakePyAutoGui) -> None:
     out = core.click(1, x=5, y=6)
     assert out["ok"] is True
-    assert ("moveTo", 5, 6) in fake.events
+    assert ("moveTo", 5, 6, 0.0) in fake.events
     assert ("click", "left") in fake.events
     assert out["after"] == {"x": 5, "y": 6, "screen": 0, "window": 0}
 
@@ -86,6 +98,20 @@ def test_click_moves_then_clicks(fake: _FakePyAutoGui) -> None:
 def test_click_requires_both_coordinates(fake: _FakePyAutoGui) -> None:
     with pytest.raises(ValueError, match="x and y must be provided together"):
         core.click(1, x=5)
+
+
+def test_drag_reports_destination(fake: _FakePyAutoGui) -> None:
+    out = core.drag(30, 40, duration=0.25, button=1)
+    assert out["after"]["x"] == 30
+    assert ("dragTo", 30, 40, 0.25, "left") in fake.events
+
+
+def test_path_holds_button_through_points(fake: _FakePyAutoGui) -> None:
+    out = core.path([(10, 20), (30, 40)], duration=0.4, button=1)
+    assert out["after"]["x"] == 30
+    assert fake.events[0] == ("mouseDown", "left")
+    assert ("moveTo", 10, 20, 0.2) in fake.events
+    assert fake.events[-1] == ("mouseUp", "left")
 
 
 def test_key_normalizes_and_splits_chords(fake: _FakePyAutoGui) -> None:
@@ -153,3 +179,33 @@ def test_screenshot_no_marker_skips_marker(
 
     result = core.screenshot(tmp_path / "s.png", no_marker=True)
     assert result["marker"] is None
+
+
+@_needs_pillow
+def test_record_writes_animated_gif(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from PIL import Image
+
+    colors = iter(("#112233", "#334455"))
+    monkeypatch.setattr(
+        _backend,
+        "capture_image",
+        lambda: Image.new("RGB", (80, 60), next(colors)),
+    )
+    monkeypatch.setattr(_backend, "position", lambda: PointerLocation(x=10, y=12))
+    monkeypatch.setattr(core.time, "sleep", lambda _seconds: None)
+
+    result = core.record(
+        tmp_path / "demo.gif",
+        duration=1.0,
+        fps=2,
+        width=40,
+        show_pointer=False,
+    )
+
+    assert result["ok"] is True
+    assert result["frames"] == 2
+    gif = Image.open(tmp_path / "demo.gif")
+    assert gif.size == (40, 30)
+    assert getattr(gif, "n_frames", 1) == 2

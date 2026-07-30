@@ -92,6 +92,36 @@ def move(x: int, y: int) -> PointerLocation:
     return position()
 
 
+def drag(x: int, y: int, *, duration: float = 0.5, button: int = 1) -> PointerLocation:
+    pyautogui = load_pyautogui()
+    pyautogui.dragTo(
+        int(x),
+        int(y),
+        duration=max(0.0, float(duration)),
+        button=button_name(button),
+    )
+    return position()
+
+
+def path(
+    points: list[tuple[int, int]],
+    *,
+    duration: float = 1.0,
+    button: int = 1,
+) -> PointerLocation:
+    if not points:
+        raise ValueError("path requires at least one point")
+    pyautogui = load_pyautogui()
+    per_point_duration = max(0.0, float(duration)) / max(1, len(points))
+    pyautogui.mouseDown(button=button_name(button))
+    try:
+        for x, y in points:
+            pyautogui.moveTo(int(x), int(y), duration=per_point_duration)
+    finally:
+        pyautogui.mouseUp(button=button_name(button))
+    return position()
+
+
 def click(button: int = 1) -> dict[str, Any]:
     pyautogui = load_pyautogui()
     before = position()

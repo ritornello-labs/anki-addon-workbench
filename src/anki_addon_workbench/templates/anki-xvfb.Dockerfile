@@ -10,6 +10,8 @@ RUN apt-get update \
         ca-certificates \
         curl \
         fonts-dejavu-core \
+    ffmpeg \
+    python3-tk \
         libasound2 \
         libdbus-1-3 \
         libegl1 \

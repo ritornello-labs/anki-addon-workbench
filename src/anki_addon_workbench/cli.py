@@ -21,6 +21,16 @@ def _gui_core() -> Any:
     return gui_core
 
 
+def _parse_region(value: str) -> tuple[int, int, int, int]:
+    parts = value.replace(",", " ").split()
+    if len(parts) != 4:
+        raise argparse.ArgumentTypeError("region must be x,y,width,height")
+    try:
+        return tuple(int(part) for part in parts)  # type: ignore[return-value]
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("region values must be integers") from exc
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Disposable Anki profile and GUI workbench tooling for add-on development."
@@ -123,9 +133,33 @@ def build_parser() -> argparse.ArgumentParser:
     screenshot.add_argument("--marker-size", type=int, default=22)
     screenshot.add_argument("--no-marker", action="store_true")
 
+    record = subparsers.add_parser(
+        "record", help="capture the screen as an animated GIF or H.264 MP4"
+    )
+    record.add_argument("--out", required=True)
+    record.add_argument("--meta")
+    record.add_argument("--duration", type=float, default=8.0)
+    record.add_argument("--fps", type=int, default=8)
+    record.add_argument("--region", type=_parse_region)
+    record.add_argument("--width", type=int, default=960)
+    record.add_argument("--no-pointer", action="store_true")
+
     move = subparsers.add_parser("move", help="move the pointer")
     move.add_argument("x", type=int)
     move.add_argument("y", type=int)
+
+    drag = subparsers.add_parser("drag", help="drag from the pointer to a destination")
+    drag.add_argument("x", type=int)
+    drag.add_argument("y", type=int)
+    drag.add_argument("--duration", type=float, default=0.5)
+    drag.add_argument("--button", type=int, default=1)
+
+    path = subparsers.add_parser(
+        "path", help="hold a mouse button while moving through x,y points"
+    )
+    path.add_argument("points", nargs="+", type=parse_pointer)
+    path.add_argument("--duration", type=float, default=1.0)
+    path.add_argument("--button", type=int, default=1)
 
     click = subparsers.add_parser("click", help="click the pointer")
     click.add_argument("--button", type=int, default=1)
@@ -249,6 +283,14 @@ def dispatch(args: argparse.Namespace) -> tuple[int, JsonDict]:
         return 0, _gui_core().location()
     if args.command == "move":
         return 0, _gui_core().move(args.x, args.y)
+    if args.command == "drag":
+        return 0, _gui_core().drag(
+            args.x, args.y, duration=args.duration, button=args.button
+        )
+    if args.command == "path":
+        return 0, _gui_core().path(
+            args.points, duration=args.duration, button=args.button
+        )
     if args.command == "click":
         return 0, _gui_core().click(args.button, args.x, args.y)
     if args.command == "key":
@@ -263,6 +305,16 @@ def dispatch(args: argparse.Namespace) -> tuple[int, JsonDict]:
             label=args.label,
             marker_size=args.marker_size,
             no_marker=args.no_marker,
+        )
+    if args.command == "record":
+        return 0, _gui_core().record(
+            args.out,
+            meta=args.meta,
+            duration=args.duration,
+            fps=args.fps,
+            region=args.region,
+            width=args.width,
+            show_pointer=not args.no_pointer,
         )
 
     if args.command == "init-probe":

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Add `record` for cropped/resized animated GIF and H.264 MP4 screen capture,
+  with optional pointer display and JSON metadata.
+- Add `drag` and multi-point `path` commands for repeatable map, drawing,
+  handwriting, and other gesture-driven Anki demos.
+- Include ffmpeg and Tk in the Docker/Xvfb image so recording and PyAutoGUI
+  work out of the box in disposable Linux captures.
+
 ## 0.5.4
 
 - Add `android_ui_dump_timeout` to `WorkbenchConfig` (default 30, matching

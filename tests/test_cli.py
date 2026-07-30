@@ -19,9 +19,24 @@ def test_parser_accepts_public_commands() -> None:
     assert parser.parse_args(["launch"]).command == "launch"
     assert parser.parse_args(["location"]).command == "location"
     assert parser.parse_args(["move", "1", "2"]).command == "move"
+    assert parser.parse_args(["drag", "3", "4"]).duration == 0.5
+    assert parser.parse_args(["path", "1,2", "3,4"]).points == [(1, 2), (3, 4)]
     assert parser.parse_args(["click"]).button == 1
     assert parser.parse_args(["key", "Escape"]).keys == ["Escape"]
     assert parser.parse_args(["type", "hello"]).text == "hello"
+    record_args = parser.parse_args(
+        [
+            "record",
+            "--out",
+            "demo.mp4",
+            "--duration",
+            "4",
+            "--region",
+            "10,20,640,480",
+        ]
+    )
+    assert record_args.duration == 4.0
+    assert record_args.region == (10, 20, 640, 480)
     docker_args = parser.parse_args(
         ["dockerfile", "--out", "Dockerfile", "--workbench-spec", "local.whl"]
     )
