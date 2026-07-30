@@ -10,8 +10,9 @@ RUN apt-get update \
         ca-certificates \
         curl \
         fonts-dejavu-core \
-    ffmpeg \
-    python3-tk \
+        fonts-noto-cjk \
+        ffmpeg \
+        python3-tk \
         libasound2 \
         libdbus-1-3 \
         libegl1 \
@@ -45,6 +46,7 @@ RUN apt-get update \
         libxshmfence1 \
         libxtst6 \
         libxslt1.1 \
+        mpv \
         python3 \
         python3-pip \
         python3-xlib \

@@ -33,6 +33,8 @@ def test_render_includes_anki_version_and_runtime_tools(tmp_path: Path) -> None:
     assert "xdotool" in text
     assert "xvfb" in text
     assert "ffmpeg" in text
+    assert "fonts-noto-cjk" in text
+    assert "mpv" in text
     assert "python3-tk" in text
     # GUI backend deps arrive through the published workbench package.
     assert 'pip3 install --break-system-packages --no-cache-dir "${ANKI_ADDON_WORKBENCH_SPEC}"' in text

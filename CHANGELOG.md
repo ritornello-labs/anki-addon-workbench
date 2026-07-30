@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Include Noto CJK fonts and mpv in the Docker/Xvfb image so real-Anki
+  screenshots and recordings render CJK text and exercise card audio instead
+  of showing missing-runtime warnings.
 - Add `record` for cropped/resized animated GIF and H.264 MP4 screen capture,
   with optional pointer display and JSON metadata.
 - Add `drag` and multi-point `path` commands for repeatable map, drawing,
