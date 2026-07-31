@@ -141,8 +141,20 @@ def build_parser() -> argparse.ArgumentParser:
     record.add_argument("--duration", type=float, default=8.0)
     record.add_argument("--fps", type=int, default=8)
     record.add_argument("--region", type=_parse_region)
-    record.add_argument("--width", type=int, default=960)
+    record.add_argument(
+        "--width",
+        type=int,
+        help="downscale to at most this width; recordings stay at native size by default",
+    )
     record.add_argument("--no-pointer", action="store_true")
+    record.add_argument("--gif-out", help="also encode a GIF from the same captured frames")
+    record.add_argument("--gif-width", type=int, default=720)
+    record.add_argument(
+        "--trim-idle",
+        action="store_true",
+        help="trim static lead-in and tail frames around the recorded interaction",
+    )
+    record.add_argument("--crf", type=int, default=20, help="MP4 H.264 quality (lower is better)")
 
     move = subparsers.add_parser("move", help="move the pointer")
     move.add_argument("x", type=int)
@@ -315,6 +327,10 @@ def dispatch(args: argparse.Namespace) -> tuple[int, JsonDict]:
             region=args.region,
             width=args.width,
             show_pointer=not args.no_pointer,
+            gif_out=args.gif_out,
+            gif_width=args.gif_width,
+            trim_idle=args.trim_idle,
+            crf=args.crf,
         )
 
     if args.command == "init-probe":

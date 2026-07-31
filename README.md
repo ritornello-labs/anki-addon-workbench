@@ -138,6 +138,8 @@ anki-workbench launch --xvfb --pointer 500,180 --keep
 anki-workbench screenshot --out .tmp/shot.png --meta .tmp/shot.json
 anki-workbench record --out .tmp/demo.gif --duration 8 --fps 8
 anki-workbench record --out .tmp/demo.mp4 --duration 12 --fps 24
+anki-workbench record --out .tmp/demo.mp4 --gif-out .tmp/demo.gif \
+  --duration 6 --fps 24 --region 120,160,1280,720 --no-pointer --trim-idle
 anki-workbench move 500 180
 anki-workbench click
 anki-workbench drag 800 450 --duration 1.2
@@ -169,10 +171,13 @@ which is far more reliable than depending on the display server to render it.
 `record` captures the same live display as a looping GIF or H.264 MP4. GIF
 encoding uses Pillow from the `[gui]` extra; MP4 encoding additionally requires
 `ffmpeg` on `PATH` (the generated Xvfb Docker image includes it). Use `--region`
-to crop to `x,y,width,height`, `--width` to constrain output size, and
-`--no-pointer` when the interaction is self-explanatory. `drag` covers straight
-drags, while `path` holds the mouse button through a sequence of points for
-drawing and tracing demos.
+to crop to `x,y,width,height`, `--width` to constrain output size without ever
+upscaling, and `--no-pointer` when the interaction is self-explanatory.
+Recordings stay at their native cropped resolution by default. `--gif-out`
+derives a GIF from the exact same captured frames as an MP4, and `--trim-idle`
+removes static lead-in and tail time around the interaction. `drag` covers
+straight drags, while `path` holds the mouse button through a sequence of points
+for drawing and tracing demos.
 
 ## Testing Cards On iOS And Android Engines
 

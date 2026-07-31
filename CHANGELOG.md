@@ -7,6 +7,11 @@
   of showing missing-runtime warnings.
 - Add `record` for cropped/resized animated GIF and H.264 MP4 screen capture,
   with optional pointer display and JSON metadata.
+- Keep recordings at their native cropped resolution by default and never
+  upscale when `--width` is larger than the source region.
+- Add `--gif-out` so one capture produces matching MP4 and GIF derivatives,
+  `--trim-idle` to remove static lead-in/tail frames, and a higher-quality
+  default H.264 encode.
 - Add `drag` and multi-point `path` commands for repeatable map, drawing,
   handwriting, and other gesture-driven Anki demos.
 - Include ffmpeg and Tk in the Docker/Xvfb image so recording and PyAutoGUI

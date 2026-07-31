@@ -157,11 +157,13 @@ def _prepare_recording_frame(
         )
 
     original_width, original_height = image.size
-    if width is not None:
+    if width is not None and width < original_width:
         if width <= 0:
             raise ValueError("recording width must be positive")
         height = max(1, round(original_height * width / original_width))
         image = image.resize((width, height), Image.Resampling.LANCZOS)
+    elif width is not None and width <= 0:
+        raise ValueError("recording width must be positive")
 
     if show_pointer:
         pointer = _backend.position()
@@ -207,6 +209,7 @@ def _write_mp4(
     width: int,
     height: int,
     fps: int,
+    crf: int,
 ) -> None:
     ffmpeg = shutil.which("ffmpeg")
     if ffmpeg is None:
@@ -234,7 +237,7 @@ def _write_mp4(
             "-preset",
             "slow",
             "-crf",
-            "24",
+            str(crf),
             "-pix_fmt",
             "yuv420p",
             "-movflags",
@@ -250,15 +253,116 @@ def _write_mp4(
         raise RuntimeError(f"ffmpeg failed to encode MP4: {result.stderr.strip()}")
 
 
+def _write_gif_from_raw(
+    raw_path: Path,
+    output: Path,
+    *,
+    width: int,
+    height: int,
+    fps: int,
+    gif_width: int,
+) -> None:
+    ffmpeg = shutil.which("ffmpeg")
+    if ffmpeg is None:
+        raise RuntimeError("secondary GIF recording requires ffmpeg on PATH")
+    gif_fps = min(fps, 12)
+    scale = f"scale=min(iw\\,{gif_width}):-2:flags=lanczos"
+    filter_complex = (
+        f"[0:v]fps={gif_fps},{scale},split[s0][s1];"
+        "[s0]palettegen=max_colors=160[p];"
+        "[s1][p]paletteuse=dither=bayer:bayer_scale=3"
+    )
+    result = subprocess.run(
+        [
+            ffmpeg,
+            "-y",
+            "-f",
+            "rawvideo",
+            "-pixel_format",
+            "rgb24",
+            "-video_size",
+            f"{width}x{height}",
+            "-framerate",
+            str(fps),
+            "-i",
+            str(raw_path),
+            "-filter_complex",
+            filter_complex,
+            "-loop",
+            "0",
+            str(output),
+        ],
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"ffmpeg failed to encode GIF: {result.stderr.strip()}")
+
+
+def _motion_score(previous: Any, current: Any) -> float:
+    from PIL import ImageChops, ImageStat  # noqa: PLC0415
+
+    difference = ImageChops.difference(previous, current)
+    return float(ImageStat.Stat(difference).mean[0])
+
+
+def _trim_range(
+    fingerprints: list[Any],
+    *,
+    fps: int,
+    threshold: float = 0.8,
+) -> tuple[int, int, list[float]]:
+    scores = [
+        _motion_score(previous, current)
+        for previous, current in zip(fingerprints, fingerprints[1:], strict=False)
+    ]
+    active = [index + 1 for index, score in enumerate(scores) if score >= threshold]
+    if not active:
+        return (0, len(fingerprints) - 1, scores)
+    lead = max(1, round(0.45 * fps))
+    trail = max(1, round(0.8 * fps))
+    return (
+        max(0, active[0] - lead),
+        min(len(fingerprints) - 1, active[-1] + trail),
+        scores,
+    )
+
+
+def _copy_raw_range(
+    source: Path,
+    destination: Path,
+    *,
+    frame_bytes: int,
+    start_frame: int,
+    end_frame: int,
+) -> None:
+    frames = end_frame - start_frame + 1
+    with source.open("rb") as input_file, destination.open("wb") as output_file:
+        input_file.seek(start_frame * frame_bytes)
+        remaining = frames * frame_bytes
+        while remaining:
+            chunk = input_file.read(min(1024 * 1024, remaining))
+            if not chunk:
+                raise RuntimeError("raw recording ended before the requested frame range")
+            output_file.write(chunk)
+            remaining -= len(chunk)
+
+
 def record(
     out: str | Path,
     *,
     duration: float = 8.0,
     fps: int = 8,
     region: tuple[int, int, int, int] | None = None,
-    width: int | None = 960,
+    width: int | None = None,
     show_pointer: bool = True,
     meta: str | Path | None = None,
+    gif_out: str | Path | None = None,
+    gif_width: int = 720,
+    trim_idle: bool = False,
+    crf: int = 20,
 ) -> JsonDict:
     if duration <= 0:
         raise ValueError("recording duration must be positive")
@@ -269,14 +373,30 @@ def record(
     suffix = output.suffix.lower()
     if suffix not in {".gif", ".mp4"}:
         raise ValueError("recording output must end in .gif or .mp4")
+    if gif_out is not None and suffix != ".mp4":
+        raise ValueError("secondary GIF output requires an MP4 primary output")
+    if gif_width <= 0:
+        raise ValueError("GIF width must be positive")
+    if crf < 0 or crf > 51:
+        raise ValueError("MP4 CRF must be between 0 and 51")
     output.parent.mkdir(parents=True, exist_ok=True)
+    gif_output = Path(str(gif_out)) if gif_out is not None else None
+    if gif_output is not None:
+        if gif_output.suffix.lower() != ".gif":
+            raise ValueError("secondary GIF output must end in .gif")
+        gif_output.parent.mkdir(parents=True, exist_ok=True)
 
     frame_count = max(1, math.ceil(duration * fps))
     frames: list[Any] = []
+    fingerprints: list[Any] = []
     raw_path: Path | None = None
     raw_file = None
+    trimmed_raw_path: Path | None = None
     started = time.monotonic()
     frame_size: tuple[int, int] | None = None
+    start_frame = 0
+    end_frame = frame_count - 1
+    motion_scores: list[float] = []
     try:
         if suffix == ".mp4":
             raw_file = tempfile.NamedTemporaryFile(prefix="aaw-record-", suffix=".rgb")
@@ -297,6 +417,10 @@ def record(
                 frame_size = frame.size
             elif frame.size != frame_size:
                 raise RuntimeError("screen dimensions changed during recording")
+            if trim_idle:
+                fingerprints.append(
+                    frame.resize((64, 64)).convert("L")
+                )
             if suffix == ".gif":
                 frames.append(frame)
             else:
@@ -304,31 +428,69 @@ def record(
                 raw_file.write(frame.tobytes())
 
         assert frame_size is not None
+        if trim_idle:
+            start_frame, end_frame, motion_scores = _trim_range(
+                fingerprints,
+                fps=fps,
+            )
         if suffix == ".gif":
-            _write_gif(frames, output, fps=fps)
+            _write_gif(frames[start_frame : end_frame + 1], output, fps=fps)
         else:
             assert raw_file is not None and raw_path is not None
             raw_file.flush()
+            encode_path = raw_path
+            if start_frame != 0 or end_frame != frame_count - 1:
+                frame_bytes = frame_size[0] * frame_size[1] * 3
+                trimmed_raw = tempfile.NamedTemporaryFile(
+                    prefix="aaw-record-trimmed-",
+                    suffix=".rgb",
+                    delete=False,
+                )
+                trimmed_raw_path = Path(trimmed_raw.name)
+                trimmed_raw.close()
+                _copy_raw_range(
+                    raw_path,
+                    trimmed_raw_path,
+                    frame_bytes=frame_bytes,
+                    start_frame=start_frame,
+                    end_frame=end_frame,
+                )
+                encode_path = trimmed_raw_path
             _write_mp4(
-                raw_path,
+                encode_path,
                 output,
                 width=frame_size[0],
                 height=frame_size[1],
                 fps=fps,
+                crf=crf,
             )
+            if gif_output is not None:
+                _write_gif_from_raw(
+                    encode_path,
+                    gif_output,
+                    width=frame_size[0],
+                    height=frame_size[1],
+                    fps=fps,
+                    gif_width=gif_width,
+                )
     finally:
         if raw_file is not None:
             raw_file.close()
+        if trimmed_raw_path is not None:
+            trimmed_raw_path.unlink(missing_ok=True)
 
     captured_seconds = time.monotonic() - started
+    encoded_frames = end_frame - start_frame + 1
     metadata: JsonDict = {
         "ok": True,
         "recording": str(output),
         "format": suffix.removeprefix("."),
         "duration": float(duration),
+        "encoded_duration": encoded_frames / fps,
         "captured_seconds": captured_seconds,
         "fps": int(fps),
         "frames": frame_count,
+        "encoded_frames": encoded_frames,
         "region": (
             {"x": region[0], "y": region[1], "width": region[2], "height": region[3]}
             if region is not None
@@ -339,6 +501,16 @@ def record(
             "height": int(frame_size[1]),
         },
         "show_pointer": bool(show_pointer),
+        "trim_idle": bool(trim_idle),
+        "trim": {
+            "start_frame": start_frame,
+            "end_frame": end_frame,
+            "motion_transitions": sum(score >= 0.8 for score in motion_scores),
+            "max_motion_score": max(motion_scores, default=0.0),
+        },
+        "gif": str(gif_output) if gif_output is not None else None,
+        "gif_width": int(gif_width) if gif_output is not None else None,
+        "crf": int(crf) if suffix == ".mp4" else None,
         "ffmpeg": shutil.which("ffmpeg"),
         "captured_at": int(time.time()),
     }

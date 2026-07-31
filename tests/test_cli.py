@@ -33,10 +33,19 @@ def test_parser_accepts_public_commands() -> None:
             "4",
             "--region",
             "10,20,640,480",
+            "--gif-out",
+            "demo.gif",
+            "--trim-idle",
+            "--crf",
+            "18",
         ]
     )
     assert record_args.duration == 4.0
     assert record_args.region == (10, 20, 640, 480)
+    assert record_args.width is None
+    assert record_args.gif_out == "demo.gif"
+    assert record_args.trim_idle is True
+    assert record_args.crf == 18
     docker_args = parser.parse_args(
         ["dockerfile", "--out", "Dockerfile", "--workbench-spec", "local.whl"]
     )

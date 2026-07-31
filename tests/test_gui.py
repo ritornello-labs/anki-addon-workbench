@@ -209,3 +209,33 @@ def test_record_writes_animated_gif(
     gif = Image.open(tmp_path / "demo.gif")
     assert gif.size == (40, 30)
     assert getattr(gif, "n_frames", 1) == 2
+
+
+@_needs_pillow
+def test_record_does_not_upscale_and_can_trim_idle_frames(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from PIL import Image
+
+    colors = iter(("#111111", "#111111", "#111111", "#eeeeee", "#eeeeee", "#eeeeee"))
+    monkeypatch.setattr(
+        _backend,
+        "capture_image",
+        lambda: Image.new("RGB", (80, 60), next(colors)),
+    )
+    monkeypatch.setattr(_backend, "position", lambda: PointerLocation(x=10, y=12))
+    monkeypatch.setattr(core.time, "sleep", lambda _seconds: None)
+
+    result = core.record(
+        tmp_path / "trimmed.gif",
+        duration=3.0,
+        fps=2,
+        width=160,
+        show_pointer=False,
+        trim_idle=True,
+    )
+
+    assert result["screen"] == {"width": 80, "height": 60}
+    assert result["trim"]["motion_transitions"] == 1
+    assert result["encoded_frames"] < result["frames"]
+    assert Image.open(tmp_path / "trimmed.gif").size == (80, 60)
