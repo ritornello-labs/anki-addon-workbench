@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -301,6 +302,107 @@ def _write_gif_from_raw(
         raise RuntimeError(f"ffmpeg failed to encode GIF: {result.stderr.strip()}")
 
 
+def _capture_x11_raw(
+    raw_path: Path,
+    *,
+    duration: float,
+    fps: int,
+    region: tuple[int, int, int, int] | None,
+    width: int | None,
+    show_pointer: bool,
+) -> tuple[int, int]:
+    ffmpeg = shutil.which("ffmpeg")
+    if ffmpeg is None:
+        raise RuntimeError("Linux recording requires ffmpeg on PATH")
+    display = os.environ.get("DISPLAY")
+    if not display:
+        raise RuntimeError("DISPLAY is not set; cannot record the X11 screen")
+
+    if region is None:
+        source_width, source_height = _backend.capture_image().size
+        region_x = 0
+        region_y = 0
+    else:
+        region_x, region_y, source_width, source_height = region
+        if source_width <= 0 or source_height <= 0:
+            raise ValueError("recording region width and height must be positive")
+
+    output_width = source_width
+    output_height = source_height
+    filters: list[str] = []
+    if width is not None:
+        if width <= 0:
+            raise ValueError("recording width must be positive")
+        if width < source_width:
+            output_width = width
+            output_height = max(1, round(source_height * width / source_width))
+            filters.append(f"scale={output_width}:{output_height}:flags=lanczos")
+
+    command = [
+        ffmpeg,
+        "-y",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-f",
+        "x11grab",
+        "-draw_mouse",
+        "1" if show_pointer else "0",
+        "-video_size",
+        f"{source_width}x{source_height}",
+        "-framerate",
+        str(fps),
+        "-i",
+        f"{display}+{region_x},{region_y}",
+        "-t",
+        str(duration),
+    ]
+    if filters:
+        command.extend(["-vf", ",".join(filters)])
+    command.extend(
+        [
+            "-r",
+            str(fps),
+            "-pix_fmt",
+            "rgb24",
+            "-f",
+            "rawvideo",
+            str(raw_path),
+        ]
+    )
+    result = subprocess.run(
+        command,
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"ffmpeg failed to capture X11: {result.stderr.strip()}")
+    return output_width, output_height
+
+
+def _fingerprints_from_raw(
+    raw_path: Path,
+    *,
+    width: int,
+    height: int,
+    frame_count: int,
+) -> list[Any]:
+    from PIL import Image  # noqa: PLC0415
+
+    frame_bytes = width * height * 3
+    fingerprints: list[Any] = []
+    with raw_path.open("rb") as raw_file:
+        for _ in range(frame_count):
+            frame_data = raw_file.read(frame_bytes)
+            if len(frame_data) != frame_bytes:
+                break
+            frame = Image.frombytes("RGB", (width, height), frame_data)
+            fingerprints.append(frame.resize((64, 64)).convert("L"))
+    return fingerprints
+
+
 def _motion_score(previous: Any, current: Any) -> float:
     from PIL import ImageChops, ImageStat  # noqa: PLC0415
 
@@ -350,6 +452,64 @@ def _copy_raw_range(
             remaining -= len(chunk)
 
 
+def _run_record_actions(
+    actions: list[JsonDict],
+    *,
+    started: float,
+    errors: list[BaseException],
+) -> None:
+    try:
+        for action in actions:
+            at = float(action.get("at", 0.0))
+            if at < 0:
+                raise ValueError("record action 'at' values must be non-negative")
+            remaining = started + at - time.monotonic()
+            if remaining > 0:
+                time.sleep(remaining)
+            kind = str(action.get("type", ""))
+            if kind == "move":
+                _backend.move(int(action["x"]), int(action["y"]))
+            elif kind == "drag":
+                _backend.drag(
+                    int(action["x"]),
+                    int(action["y"]),
+                    duration=float(action.get("duration", 0.5)),
+                    button=int(action.get("button", 1)),
+                )
+            elif kind == "path":
+                points = [
+                    (int(point["x"]), int(point["y"]))
+                    for point in action.get("points", [])
+                ]
+                if not points:
+                    raise ValueError("record path actions require at least one point")
+                _backend.path(
+                    points,
+                    duration=float(action.get("duration", 1.0)),
+                    button=int(action.get("button", 1)),
+                )
+            elif kind == "click":
+                if ("x" in action) != ("y" in action):
+                    raise ValueError(
+                        "record click actions require both x and y or neither"
+                    )
+                if "x" in action:
+                    _backend.move(int(action["x"]), int(action["y"]))
+                _backend.click(int(action.get("button", 1)))
+            elif kind == "key":
+                keys = action.get("keys")
+                if not isinstance(keys, list) or not keys:
+                    raise ValueError("record key actions require a non-empty keys list")
+                for name in keys:
+                    _backend.press_key(str(name))
+            elif kind == "type":
+                _backend.type_text(str(action.get("text", "")))
+            else:
+                raise ValueError(f"unsupported record action type: {kind!r}")
+    except BaseException as exc:  # noqa: BLE001 - forwarded to the caller thread
+        errors.append(exc)
+
+
 def record(
     out: str | Path,
     *,
@@ -363,6 +523,7 @@ def record(
     gif_width: int = 720,
     trim_idle: bool = False,
     crf: int = 20,
+    actions: list[JsonDict] | None = None,
 ) -> JsonDict:
     if duration <= 0:
         raise ValueError("recording duration must be positive")
@@ -394,38 +555,94 @@ def record(
     trimmed_raw_path: Path | None = None
     started = time.monotonic()
     frame_size: tuple[int, int] | None = None
+    capture_backend = "image-grab"
+    action_thread: threading.Thread | None = None
+    action_errors: list[BaseException] = []
     start_frame = 0
     end_frame = frame_count - 1
     motion_scores: list[float] = []
     try:
-        if suffix == ".mp4":
+        record_backend = os.environ.get("ANKI_WORKBENCH_RECORD_BACKEND", "auto")
+        if record_backend not in {"auto", "image-grab", "x11grab"}:
+            raise ValueError(
+                "ANKI_WORKBENCH_RECORD_BACKEND must be auto, image-grab, or x11grab"
+            )
+        use_x11_capture = (
+            record_backend == "x11grab"
+            and sys.platform.startswith("linux")
+            and bool(os.environ.get("DISPLAY"))
+        )
+        if record_backend == "x11grab" and not use_x11_capture:
+            raise RuntimeError("x11grab recording requires Linux and DISPLAY")
+        if suffix == ".mp4" or use_x11_capture:
             raw_file = tempfile.NamedTemporaryFile(prefix="aaw-record-", suffix=".rgb")
             raw_path = Path(raw_file.name)
 
-        for frame_index in range(frame_count):
-            target_time = started + frame_index / fps
-            remaining = target_time - time.monotonic()
-            if remaining > 0:
-                time.sleep(remaining)
-            frame = _prepare_recording_frame(
-                _backend.capture_image(),
+        if actions:
+            action_thread = threading.Thread(
+                target=_run_record_actions,
+                kwargs={
+                    "actions": actions,
+                    "started": started,
+                    "errors": action_errors,
+                },
+                daemon=True,
+            )
+            action_thread.start()
+
+        if use_x11_capture:
+            assert raw_file is not None and raw_path is not None
+            frame_size = _capture_x11_raw(
+                raw_path,
+                duration=duration,
+                fps=fps,
                 region=region,
                 width=width,
                 show_pointer=show_pointer,
             )
-            if frame_size is None:
-                frame_size = frame.size
-            elif frame.size != frame_size:
-                raise RuntimeError("screen dimensions changed during recording")
+            capture_backend = "ffmpeg-x11grab"
+            frame_bytes = frame_size[0] * frame_size[1] * 3
+            frame_count = raw_path.stat().st_size // frame_bytes
+            if frame_count < 1:
+                raise RuntimeError("X11 recording produced no frames")
+            end_frame = frame_count - 1
             if trim_idle:
-                fingerprints.append(
-                    frame.resize((64, 64)).convert("L")
+                fingerprints = _fingerprints_from_raw(
+                    raw_path,
+                    width=frame_size[0],
+                    height=frame_size[1],
+                    frame_count=frame_count,
                 )
-            if suffix == ".gif":
-                frames.append(frame)
-            else:
-                assert raw_file is not None
-                raw_file.write(frame.tobytes())
+        else:
+            for frame_index in range(frame_count):
+                target_time = started + frame_index / fps
+                remaining = target_time - time.monotonic()
+                if remaining > 0:
+                    time.sleep(remaining)
+                frame = _prepare_recording_frame(
+                    _backend.capture_image(),
+                    region=region,
+                    width=width,
+                    show_pointer=show_pointer,
+                )
+                if frame_size is None:
+                    frame_size = frame.size
+                elif frame.size != frame_size:
+                    raise RuntimeError("screen dimensions changed during recording")
+                if trim_idle:
+                    fingerprints.append(frame.resize((64, 64)).convert("L"))
+                if suffix == ".gif":
+                    frames.append(frame)
+                else:
+                    assert raw_file is not None
+                    raw_file.write(frame.tobytes())
+
+        if action_thread is not None:
+            action_thread.join(timeout=max(2.0, duration + 2.0))
+            if action_thread.is_alive():
+                raise RuntimeError("record actions did not finish in time")
+            if action_errors:
+                raise action_errors[0]
 
         assert frame_size is not None
         if trim_idle:
@@ -434,7 +651,36 @@ def record(
                 fps=fps,
             )
         if suffix == ".gif":
-            _write_gif(frames[start_frame : end_frame + 1], output, fps=fps)
+            if use_x11_capture:
+                assert raw_path is not None
+                encode_path = raw_path
+                if start_frame != 0 or end_frame != frame_count - 1:
+                    frame_bytes = frame_size[0] * frame_size[1] * 3
+                    trimmed_raw = tempfile.NamedTemporaryFile(
+                        prefix="aaw-record-trimmed-",
+                        suffix=".rgb",
+                        delete=False,
+                    )
+                    trimmed_raw_path = Path(trimmed_raw.name)
+                    trimmed_raw.close()
+                    _copy_raw_range(
+                        raw_path,
+                        trimmed_raw_path,
+                        frame_bytes=frame_bytes,
+                        start_frame=start_frame,
+                        end_frame=end_frame,
+                    )
+                    encode_path = trimmed_raw_path
+                _write_gif_from_raw(
+                    encode_path,
+                    output,
+                    width=frame_size[0],
+                    height=frame_size[1],
+                    fps=fps,
+                    gif_width=frame_size[0],
+                )
+            else:
+                _write_gif(frames[start_frame : end_frame + 1], output, fps=fps)
         else:
             assert raw_file is not None and raw_path is not None
             raw_file.flush()
@@ -478,6 +724,8 @@ def record(
             raw_file.close()
         if trimmed_raw_path is not None:
             trimmed_raw_path.unlink(missing_ok=True)
+        if action_thread is not None and action_thread.is_alive():
+            action_thread.join(timeout=1.0)
 
     captured_seconds = time.monotonic() - started
     encoded_frames = end_frame - start_frame + 1
@@ -500,7 +748,9 @@ def record(
             "width": int(frame_size[0]),
             "height": int(frame_size[1]),
         },
+        "capture_backend": capture_backend,
         "show_pointer": bool(show_pointer),
+        "actions": len(actions or []),
         "trim_idle": bool(trim_idle),
         "trim": {
             "start_frame": start_frame,

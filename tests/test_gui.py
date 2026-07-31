@@ -114,6 +114,29 @@ def test_path_holds_button_through_points(fake: _FakePyAutoGui) -> None:
     assert fake.events[-1] == ("mouseUp", "left")
 
 
+def test_record_actions_run_inside_capture_process(
+    fake: _FakePyAutoGui, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(core.time, "sleep", lambda _seconds: None)
+    errors: list[BaseException] = []
+
+    core._run_record_actions(
+        [
+            {"at": 0, "type": "move", "x": 10, "y": 20},
+            {"at": 0, "type": "drag", "x": 30, "y": 40, "duration": 0.25},
+            {"at": 0, "type": "click", "x": 50, "y": 60},
+        ],
+        started=core.time.monotonic(),
+        errors=errors,
+    )
+
+    assert errors == []
+    assert ("moveTo", 10, 20, 0.0) in fake.events
+    assert ("dragTo", 30, 40, 0.25, "left") in fake.events
+    assert ("moveTo", 50, 60, 0.0) in fake.events
+    assert ("click", "left") in fake.events
+
+
 def test_key_normalizes_and_splits_chords(fake: _FakePyAutoGui) -> None:
     core.key(["Escape", "ctrl+a"])
     assert ("press", "escape") in fake.events

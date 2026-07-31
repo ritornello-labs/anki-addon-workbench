@@ -35,6 +35,8 @@ def test_parser_accepts_public_commands() -> None:
             "10,20,640,480",
             "--gif-out",
             "demo.gif",
+            "--actions",
+            "actions.json",
             "--trim-idle",
             "--crf",
             "18",
@@ -44,6 +46,7 @@ def test_parser_accepts_public_commands() -> None:
     assert record_args.region == (10, 20, 640, 480)
     assert record_args.width is None
     assert record_args.gif_out == "demo.gif"
+    assert record_args.actions == "actions.json"
     assert record_args.trim_idle is True
     assert record_args.crf == 18
     docker_args = parser.parse_args(

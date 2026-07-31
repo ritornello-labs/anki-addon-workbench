@@ -12,6 +12,8 @@
 - Add `--gif-out` so one capture produces matching MP4 and GIF derivatives,
   `--trim-idle` to remove static lead-in/tail frames, and a higher-quality
   default H.264 encode.
+- Add `record --actions` so timed GUI interactions run inside the capture
+  process and remain visible in Qt WebEngine/Xvfb recordings.
 - Add `drag` and multi-point `path` commands for repeatable map, drawing,
   handwriting, and other gesture-driven Anki demos.
 - Include ffmpeg and Tk in the Docker/Xvfb image so recording and PyAutoGUI

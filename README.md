@@ -137,9 +137,10 @@ anki-workbench smoke --allow-foreground
 anki-workbench launch --xvfb --pointer 500,180 --keep
 anki-workbench screenshot --out .tmp/shot.png --meta .tmp/shot.json
 anki-workbench record --out .tmp/demo.gif --duration 8 --fps 8
-anki-workbench record --out .tmp/demo.mp4 --duration 12 --fps 24
+anki-workbench record --out .tmp/demo.mp4 --duration 6 --fps 12
 anki-workbench record --out .tmp/demo.mp4 --gif-out .tmp/demo.gif \
-  --duration 6 --fps 24 --region 120,160,1280,720 --no-pointer --trim-idle
+  --duration 6 --fps 12 --region 120,160,1280,720 --no-pointer --trim-idle \
+  --actions .tmp/demo-actions.json
 anki-workbench move 500 180
 anki-workbench click
 anki-workbench drag 800 450 --duration 1.2
@@ -175,9 +176,22 @@ to crop to `x,y,width,height`, `--width` to constrain output size without ever
 upscaling, and `--no-pointer` when the interaction is self-explanatory.
 Recordings stay at their native cropped resolution by default. `--gif-out`
 derives a GIF from the exact same captured frames as an MP4, and `--trim-idle`
-removes static lead-in and tail time around the interaction. `drag` covers
-straight drags, while `path` holds the mouse button through a sequence of points
-for drawing and tracing demos.
+removes static lead-in and tail time around the interaction. For reliable
+headless videos, `--actions` accepts a JSON array of timed `move`, `drag`,
+`path`, `click`, `key`, and `type` actions. They run inside the recorder
+process, so Qt WebEngine updates are captured instead of being queued until the
+capture releases Xvfb. For example:
+
+```json
+[
+  {"at": 0.5, "type": "move", "x": 320, "y": 480},
+  {"at": 0.6, "type": "drag", "x": 760, "y": 300, "duration": 1.2},
+  {"at": 2.1, "type": "click", "x": 640, "y": 900}
+]
+```
+
+Standalone `drag` covers straight drags, while `path` holds the mouse button
+through a sequence of points for drawing and tracing demos.
 
 ## Testing Cards On iOS And Android Engines
 

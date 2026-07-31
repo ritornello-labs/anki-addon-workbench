@@ -31,6 +31,16 @@ def _parse_region(value: str) -> tuple[int, int, int, int]:
         raise argparse.ArgumentTypeError("region values must be integers") from exc
 
 
+def _load_record_actions(path: str | None) -> list[JsonDict] | None:
+    if path is None:
+        return None
+    source = Path(path)
+    data = json.loads(source.read_text(encoding="utf-8"))
+    if not isinstance(data, list) or not all(isinstance(item, dict) for item in data):
+        raise ValueError("record actions must be a JSON array of action objects")
+    return data
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Disposable Anki profile and GUI workbench tooling for add-on development."
@@ -153,6 +163,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--trim-idle",
         action="store_true",
         help="trim static lead-in and tail frames around the recorded interaction",
+    )
+    record.add_argument(
+        "--actions",
+        help=(
+            "JSON timeline of move, drag, path, click, key, and type actions to run "
+            "inside the recorder process"
+        ),
     )
     record.add_argument("--crf", type=int, default=20, help="MP4 H.264 quality (lower is better)")
 
@@ -331,6 +348,7 @@ def dispatch(args: argparse.Namespace) -> tuple[int, JsonDict]:
             gif_width=args.gif_width,
             trim_idle=args.trim_idle,
             crf=args.crf,
+            actions=_load_record_actions(args.actions),
         )
 
     if args.command == "init-probe":
