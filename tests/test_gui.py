@@ -109,8 +109,9 @@ def test_drag_reports_destination(fake: _FakePyAutoGui) -> None:
 def test_path_holds_button_through_points(fake: _FakePyAutoGui) -> None:
     out = core.path([(10, 20), (30, 40)], duration=0.4, button=1)
     assert out["after"]["x"] == 30
-    assert fake.events[0] == ("mouseDown", "left")
-    assert ("moveTo", 10, 20, 0.2) in fake.events
+    assert fake.events[0] == ("moveTo", 10, 20, 0.0)
+    assert fake.events[1] == ("mouseDown", "left")
+    assert ("moveTo", 30, 40, 0.4) in fake.events
     assert fake.events[-1] == ("mouseUp", "left")
 
 

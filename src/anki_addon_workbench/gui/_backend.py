@@ -112,10 +112,11 @@ def path(
     if not points:
         raise ValueError("path requires at least one point")
     pyautogui = load_pyautogui()
-    per_point_duration = max(0.0, float(duration)) / max(1, len(points))
+    pyautogui.moveTo(*points[0])
+    per_point_duration = max(0.0, float(duration)) / max(1, len(points) - 1)
     pyautogui.mouseDown(button=button_name(button))
     try:
-        for x, y in points:
+        for x, y in points[1:]:
             pyautogui.moveTo(int(x), int(y), duration=per_point_duration)
     finally:
         pyautogui.mouseUp(button=button_name(button))
