@@ -167,7 +167,7 @@ def build_parser() -> argparse.ArgumentParser:
     record.add_argument(
         "--actions",
         help=(
-            "JSON timeline of move, drag, path, click, key, and type actions to run "
+            "JSON timeline of move, drag, path, click, scroll, key, and type actions to run "
             "inside the recorder process"
         ),
     )

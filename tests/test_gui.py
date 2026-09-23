@@ -56,6 +56,9 @@ class _FakePyAutoGui:
     def click(self, button: str = "left") -> None:
         self.events.append(("click", button))
 
+    def scroll(self, clicks: int) -> None:
+        self.events.append(("scroll", clicks))
+
     def press(self, key: str) -> None:
         self.events.append(("press", key))
 
@@ -126,6 +129,7 @@ def test_record_actions_run_inside_capture_process(
             {"at": 0, "type": "move", "x": 10, "y": 20},
             {"at": 0, "type": "drag", "x": 30, "y": 40, "duration": 0.25},
             {"at": 0, "type": "click", "x": 50, "y": 60},
+            {"at": 0, "type": "scroll", "x": 70, "y": 80, "clicks": -3},
         ],
         started=core.time.monotonic(),
         errors=errors,
@@ -136,6 +140,8 @@ def test_record_actions_run_inside_capture_process(
     assert ("dragTo", 30, 40, 0.25, "left") in fake.events
     assert ("moveTo", 50, 60, 0.0) in fake.events
     assert ("click", "left") in fake.events
+    assert ("moveTo", 70, 80, 0.0) in fake.events
+    assert ("scroll", -3) in fake.events
 
 
 def test_key_normalizes_and_splits_chords(fake: _FakePyAutoGui) -> None:

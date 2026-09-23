@@ -496,6 +496,14 @@ def _run_record_actions(
                 if "x" in action:
                     _backend.move(int(action["x"]), int(action["y"]))
                 _backend.click(int(action.get("button", 1)))
+            elif kind == "scroll":
+                if ("x" in action) != ("y" in action):
+                    raise ValueError(
+                        "record scroll actions require both x and y or neither"
+                    )
+                if "x" in action:
+                    _backend.move(int(action["x"]), int(action["y"]))
+                _backend.load_pyautogui().scroll(int(action["clicks"]))
             elif kind == "key":
                 keys = action.get("keys")
                 if not isinstance(keys, list) or not keys:
