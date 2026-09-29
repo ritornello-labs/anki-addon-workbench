@@ -1,6 +1,6 @@
 [project]
 name = "anki-addon-workbench"
-version = "0.5.4"
+version = "0.5.5"
 description = "Disposable Anki profile, add-on install, Docker/Xvfb, and cross-platform card workbench tooling for Anki add-on and deck development."
 readme = "README.md"
 requires-python = ">=3.10"

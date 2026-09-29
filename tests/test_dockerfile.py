@@ -28,6 +28,7 @@ def test_render_includes_anki_version_and_runtime_tools(tmp_path: Path) -> None:
     text = render_dockerfile(_config(tmp_path, anki_version="25.09"))
 
     assert "ARG ANKI_LAUNCHER_VERSION=25.09" in text
+    assert "printf '2\\n%s\\n\\n' \"${ANKI_LAUNCHER_VERSION}\" | /usr/local/bin/anki" in text
     assert 'ARG ANKI_ADDON_WORKBENCH_SPEC="anki-addon-workbench[gui]"' in text
     assert "libxi6" in text
     assert "xdotool" in text

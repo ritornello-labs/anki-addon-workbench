@@ -66,8 +66,9 @@ RUN curl -fsSL "${ANKI_LAUNCHER_URL}" -o /tmp/anki-launcher.tar.zst \
     && ln -sf /usr/local/share/anki/anki /usr/local/bin/anki \
     && rm -f /tmp/anki-launcher.tar.zst
 
-RUN printf '\n' | /usr/local/bin/anki >/tmp/anki-launcher-install.log 2>/tmp/anki-launcher-install.err \
-    && test -x /root/.local/share/AnkiProgramFiles/.venv/bin/anki \
+RUN (printf '2\n%s\n\n' "${ANKI_LAUNCHER_VERSION}" | /usr/local/bin/anki >/tmp/anki-launcher-install.log 2>/tmp/anki-launcher-install.err \
+    && test -x /root/.local/share/AnkiProgramFiles/.venv/bin/anki) \
+    || { cat /tmp/anki-launcher-install.log /tmp/anki-launcher-install.err; exit 1; } \
     && rm -rf /root/.cache/uv
 
 {{WORKBENCH_LOCAL_WHEEL_COPY}}ARG ANKI_ADDON_WORKBENCH_SPEC={{WORKBENCH_SPEC}}
