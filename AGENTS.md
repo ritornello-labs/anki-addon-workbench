@@ -23,3 +23,9 @@ project, which is now deprecated.
   disposable base folders and fixture add-ons.
 - Use `uv` for dependency management and keep the lockfile current.
 - Run `make check` before committing meaningful changes.
+
+## Publication safety
+
+Follow `docs/PUBLICATION_PROCESS.md`. Install the shared frozen local hooks before
+public pushes and keep the pinned quiet publication check required on main.
+Keep detailed audit findings outside Git; unsupported formats block publication.
