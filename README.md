@@ -1,5 +1,7 @@
 <h1 align="center">🔬 anki-addon-workbench</h1>
 
+[Explore all Ritornello decks and add-ons](https://ritornello.dev/).
+
 <p align="center">
   <em>Headless, disposable-profile testing &amp; cross-platform GUI tooling for Anki add-on and deck development.</em>
 </p>
@@ -395,3 +397,5 @@ One-time setup on PyPI (Account → Publishing → Add a pending publisher):
 - **Owner / Repository:** your GitHub org/repo
 - **Workflow name:** `release.yml`
 - **Environment name:** `pypi`
+
+Support continued development: [ritornello.dev/support](https://ritornello.dev/support).

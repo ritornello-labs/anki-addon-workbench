@@ -1,0 +1,11 @@
+name: Publication checks
+on:
+  pull_request:
+  push:
+permissions:
+  contents: read
+jobs:
+  publication:
+    uses: ritornello-labs/anki-addon-release/.github/workflows/publication-gate.yml@f8743b1d193d7f40cbe7877e1871b45730994d1a
+    with:
+      tool_ref: f8743b1d193d7f40cbe7877e1871b45730994d1a
